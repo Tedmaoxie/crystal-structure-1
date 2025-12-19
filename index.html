@@ -1,0 +1,2646 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>晶体结构可视化展示系统by实验中学</title>
+    <style>
+        :root {
+            --bg-color: #050510;
+            --panel-bg: rgba(20, 20, 35, 0.6);
+            --text-main: #e0e0ff;
+            --text-dim: #8080a0;
+            --accent-color: #00f3ff;
+            --accent-glow: 0 0 10px #00f3ff, 0 0 20px #00f3ff;
+            --border-color: rgba(100, 100, 255, 0.2);
+            --glass-blur: blur(12px);
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text-main);
+        }
+
+        sub {
+            font-size: 70%;
+            vertical-align: sub;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 0;
+            background: radial-gradient(circle at center, #0a0a20 0%, #000000 100%);
+        }
+
+        /* UI Overlay Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Let clicks pass through to canvas */
+            display: grid;
+            grid-template-columns: 200px 1fr 200px;
+            grid-template-rows: 60px 1fr 80px;
+            padding: 20px;
+            gap: 20px;
+        }
+
+        /* Common Panel Style */
+        .glass-panel {
+            background: var(--panel-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            pointer-events: auto;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .glass-panel:hover {
+            border-color: rgba(100, 200, 255, 0.4);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.1);
+        }
+
+        /* Header */
+        header {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            background: linear-gradient(90deg, rgba(0,243,255,0.1) 0%, rgba(0,0,0,0) 100%);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            margin: 0;
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+        }
+
+        .mode-switch {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .switch-track {
+            width: 40px;
+            height: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            position: relative;
+            transition: 0.3s;
+        }
+
+        .switch-track.active {
+            background: var(--accent-color);
+            box-shadow: var(--accent-glow);
+        }
+
+        .switch-knob {
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            transition: 0.3s;
+        }
+
+        .switch-track.active .switch-knob {
+            transform: translateX(20px);
+        }
+
+        /* Navigation Sidebar */
+        #nav-sidebar {
+            grid-column: 1;
+            grid-row: 2 / -1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .nav-category {
+            margin-bottom: 20px;
+        }
+
+        .category-title {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            padding-left: 10px;
+            border-left: 2px solid var(--accent-color);
+        }
+
+        .nav-item {
+            padding: 10px 12px;
+            margin-bottom: 4px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-item.active {
+            background: rgba(0, 243, 255, 0.15);
+            color: var(--accent-color);
+            border-left: 3px solid var(--accent-color);
+        }
+
+        .nav-item.active::after {
+            content: '●';
+            font-size: 0.6rem;
+            animation: blink 2s infinite;
+        }
+
+        /* Main View Area (HUD) */
+        #hud-area {
+            grid-column: 2;
+            grid-row: 2;
+            position: relative;
+            pointer-events: none; /* Pass through to canvas */
+        }
+
+        #structure-info {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            width: 100%;
+            pointer-events: none;
+        }
+
+        #main-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+            background: linear-gradient(to bottom, #fff, #a0a0ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 10px rgba(100,100,255,0.5));
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+        }
+
+        #sub-info {
+            font-size: 1.2rem;
+            color: var(--accent-color);
+            margin-top: 8px;
+            text-shadow: 0 0 5px rgba(0, 243, 255, 0.5);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1) 0.1s;
+        }
+
+        #keywords-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .keyword-tag {
+            background: rgba(0, 243, 255, 0.1);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            /* text-transform: uppercase; */
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+            opacity: 0;
+            transform: translateX(20px);
+            animation: slideInRight 0.5s forwards;
+        }
+
+        /* Right Panel (Details/Controls) */
+        #details-panel {
+            grid-column: 3;
+            grid-row: 2;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .detail-item {
+            margin-bottom: 15px;
+        }
+
+        .detail-label {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 5px;
+        }
+
+        .detail-value {
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            box-shadow: 0 0 5px currentColor;
+        }
+
+        /* Bottom Controls */
+        #bottom-controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            z-index: 200;
+        }
+
+        .control-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: var(--text-main);
+            padding: 10px 20px;
+            border-radius: 30px;
+            cursor: pointer;
+            pointer-events: auto; /* 允许鼠标事件 */
+            position: relative;   /* 确保 z-index 生效 */
+            z-index: 100;         /* 提高层级，防止被覆盖 */
+            font-size: 0.9rem;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-btn:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: var(--text-main);
+        }
+
+        .control-btn.active {
+            background: var(--accent-color);
+            color: #000;
+            box-shadow: var(--accent-glow);
+            border-color: var(--accent-color);
+        }
+
+        /* Animations */
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        @keyframes slideInRight {
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .visible {
+            opacity: 1 !important;
+            transform: translateY(0) !important;
+        }
+
+        /* Button Active State */
+        .control-btn:active {
+            transform: scale(0.95);
+            background: rgba(0, 243, 255, 0.3);
+        }
+
+        /* Loading */
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--accent-color);
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div id="loading">SYSTEM INITIALIZING...</div>
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Layer -->
+    <div id="ui-layer">
+        
+        <!-- Header -->
+        <header class="glass-panel" style="border-radius: 0 0 12px 12px; border-top: none;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div style="width: 20px; height: 20px; background: var(--accent-color); border-radius: 50%; box-shadow: var(--accent-glow);"></div>
+                <h1>AI赋能高中化学教学系列by实验中学 CRYSTAL VIS • 晶体结构可视化展示系统</h1>
+            </div>
+            
+            <div class="mode-switch" onclick="toggleDemoMode()">
+                <span>教研演示模式</span>
+                <div class="switch-track active" id="demo-switch">
+                    <div class="switch-knob"></div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Sidebar Navigation -->
+        <nav id="nav-sidebar" class="glass-panel">
+            <!-- Content injected by JS -->
+        </nav>
+
+        <!-- CN Display -->
+        <div id="cn-display" class="glass-panel" style="
+            position: absolute; 
+            top: 20px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            padding: 10px 20px; 
+            display: none; 
+            z-index: 500;
+            pointer-events: none;
+            text-align: center;
+        ">
+            <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 4px;">配位数 / CN</div>
+            <div id="cn-value" style="font-size: 1.5rem; color: var(--accent-color); font-weight: bold;">-</div>
+        </div>
+
+        <!-- HUD Area -->
+        <div id="hud-area">
+            <div id="keywords-container">
+                <!-- Keywords injected by JS -->
+            </div>
+
+            <div id="structure-info">
+                <h2 id="main-title">Loading...</h2>
+                <div id="sub-info">Description</div>
+            </div>
+        </div>
+
+        <!-- Right Details Panel -->
+        <aside id="details-panel" class="glass-panel">
+            <div class="category-title">结构参数 / PARAMETERS</div>
+            <div class="detail-item">
+                <div class="detail-label">晶系 / System</div>
+                <div class="detail-value" id="info-system">-</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">配位数 / CN</div>
+                <div class="detail-value" id="info-cn">-</div>
+            </div>
+            <div class="detail-item">
+                <div class="detail-label">原子数(晶胞) / Z</div>
+                <div class="detail-value" id="info-z">-</div>
+            </div>
+            
+            <div class="category-title" style="margin-top: 20px;">图例 / LEGEND</div>
+            <div id="legend-container">
+                <!-- Legend items injected by JS -->
+            </div>
+        </aside>
+
+        <!-- Bottom Controls -->
+        <div id="bottom-controls">
+            <button class="control-btn" onclick="resetView()">
+                <span>⟲</span> 复位视图
+            </button>
+            <button class="control-btn" id="pause-btn" onclick="togglePause()">
+                <span>❚❚</span> 暂停演示
+            </button>
+            <button class="control-btn" onclick="nextStructure()">
+                <span>▶|</span> 下一个
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Libraries -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Application Logic -->
+    <script>
+        // --- 全局配置与状态 ---
+        const CONFIG = {
+            demoStepDuration: 8000, // (不再直接用于总时长，保留作为参考)
+            demoStayTime: 2000, // 整体展示停留时间
+            demoHighlightTime: 5000, // 配位高亮展示时间
+            transitionDuration: 1000,
+            colors: {
+                Na: 0xab5cf2, Cl: 0x1ff45d, Cs: 0x57178f,
+                Ca: 0x3dff00, F: 0x90e0ef, Cu: 0xc88033, 
+                O: 0xff0040, Zn: 0x7d8085, C: 0x808080, 
+                Si: 0x4a5d7c, H: 0xffffff, I: 0x9400d3,
+                Ti: 0xbfc2c7, N: 0x3050f8, S: 0xffff00,
+                Po: 0xaaaaaa // 添加 Po 颜色
+            },
+            // 定义相对原子/离子半径 (用于视觉区分大小)
+            radii: {
+                // 阳离子通常较小，阴离子通常较大
+                Na: 0.19, Cl: 0.25,  // NaCl: Na+ < Cl-
+                Cs: 0.22,            // CsCl: Cs+ > Na+, 但 Cs+ < Cl- (0.169nm vs 0.181nm)
+                Ca: 0.18, F: 0.15,   // CaF2: Ca2+ ~ F-
+                Cu: 0.15, O: 0.18,   // Cu2O
+                Zn: 0.15, S: 0.24,   // ZnS
+                C: 0.20, H: 0.08,    // Organic
+                Si: 0.18,            // Silicon
+                I: 0.26,             // Iodine (Large)
+                Ti: 0.14,            // Perovskite
+                Po: 0.22,            // Simple Cubic
+                N: 0.16
+            },
+            // 定义电荷/氧化态 (用于配位数计算规则)
+            charges: {
+                Na: 1, Cl: -1, K: 1,
+                Cs: 1,
+                Ca: 2, F: -1,
+                Cu: 1, O: -2, // Cu2O implies Cu+
+                Zn: 2, S: -2,
+                Ti: 4,
+                H: 1,
+                // 共价/金属晶体可视作 0 或不适用
+                C: 0, Si: 0, Po: 0, I: 0,
+                Fe: 0, Ag: 0, Au: 0 // 金属视作 0
+            },
+            atomScale: 0.20,
+            bondRadius: 0.02
+        };
+
+        let state = {
+            demoMode: true,
+            paused: false,
+            currentIndex: 0,
+            lastSwitchTime: 0,
+            isTransitioning: false,
+            selectedAtom: null, // Track selected atom for CN display
+            
+            // Demo Mode Phases
+            demoPhase: 0, // 0: Init/Whole, 1...N: Highlight Types, N+1: End Whole
+            lastDemoActionTime: 0,
+            demoTargets: [], // Indices of atoms to highlight
+            demoActionDone: false
+        };
+        
+        let currentStructureData = null; // Store current structure data for interaction
+
+        // --- Data Definitions ---
+        // 【工具函数】生成基础晶格点阵
+        // 参数 type: 晶格类型 ('SC', 'BCC', 'FCC')
+        const genLattice = (type, params = {}) => {
+            const points = [];
+            if(type === 'SC') { // Simple Cubic - 简单立方
+                // 生成立方体的8个顶点 (0,0,0) 到 (1,1,1)
+                for(let x=0; x<=1; x++) for(let y=0; y<=1; y++) for(let z=0; z<=1; z++) 
+                    points.push({x,y,z});
+            } else if(type === 'BCC') { // Body-Centered Cubic - 体心立方
+                // 1. 生成8个顶点
+                for(let x=0; x<=1; x++) for(let y=0; y<=1; y++) for(let z=0; z<=1; z++) 
+                    points.push({x,y,z});
+                // 2. 添加体心的一个点
+                points.push({x:0.5, y:0.5, z:0.5});
+            } else if(type === 'FCC') { // Face-Centered Cubic - 面心立方
+                // 1. 生成8个顶点
+                for(let x=0; x<=1; x++) for(let y=0; y<=1; y++) for(let z=0; z<=1; z++) 
+                    points.push({x,y,z});
+                // 2. 添加6个面的中心点
+                // (上下, 前后, 左右面的中心)
+                [[0.5,0.5,0], [0.5,0.5,1], [0.5,0,0.5], [0.5,1,0.5], [0,0.5,0.5], [1,0.5,0.5]]
+                .forEach(p => points.push({x:p[0], y:p[1], z:p[2]}));
+            }
+            return points;
+        };
+
+        const structures = [
+            // --- 1. 晶胞基础 ---
+            {
+                id: 'sc', category: '基础晶胞', title: '简单立方堆积',
+                keywords: ['配位数: 6', '空间利用率: 52%', 'Po (钋)'],
+                info: { system: '立方晶系', cn: '6', z: '1' },
+                generator: () => {
+                    const atoms = genLattice('SC').map(p => ({...p, el: 'Po'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 1.01),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'bcc', category: '基础晶胞', title: '体心立方堆积 (BCC)',
+                keywords: ['配位数: 8', '空间利用率: 68%', 'Na, K, Fe'],
+                info: { system: '立方晶系', cn: '8', z: '2' },
+                generator: () => {
+                    const atoms = genLattice('BCC').map(p => ({...p, el: 'Na'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.87),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'fcc', category: '基础晶胞', title: '面心立方堆积 (FCC)',
+                keywords: ['配位数: 12', '空间利用率: 74%', 'Cu, Ag, Au'],
+                info: { system: '立方晶系', cn: '12', z: '4' },
+                generator: () => {
+                    const atoms = genLattice('FCC').map(p => ({...p, el: 'Cu'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.71),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            // --- 2. 离子晶体 ---
+            {
+                id: 'nacl', category: '离子晶体', title: '氯化钠 (NaCl)',
+                keywords: ['配位数: 6', '离子键', '岩盐结构'],
+                info: { system: '立方晶系', cn: '6:6', z: '4' },
+                generator: () => {
+                    const atoms = [];
+                    genLattice('FCC').forEach(p => atoms.push({...p, el: 'Cl'}));
+                    [[0.5,0,0],[0.5,1,0],[0,0.5,0],[1,0.5,0],[0,0,0.5],[0,1,0.5],[1,0,0.5],[1,1,0.5],
+                     [0.5,0.5,0.5],[0.5,0,1],[0.5,1,1],[0,0.5,1],[1,0.5,1]]
+                    .forEach(p => atoms.push({x:p[0], y:p[1], z:p[2], el: 'Na'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.6),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'cscl', category: '离子晶体', title: '氯化铯 (CsCl)',
+                keywords: ['配位数: 8', '简单立方Cl-', '体心Cs+'],
+                info: { system: '立方晶系', cn: '8:8', z: '1' },
+                generator: () => {
+                    const atoms = genLattice('SC').map(p => ({...p, el: 'Cl'}));
+                    atoms.push({x:0.5, y:0.5, z:0.5, el: 'Cs'});
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.9),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'caf2', category: '离子晶体', title: '氟化钙 (CaF2)',
+                keywords: ['萤石结构', '配位数 8:4', 'Ca²⁺面心立方'],
+                info: { system: '立方晶系', cn: '8:4', z: '4' },
+                generator: () => {
+                    const atoms = genLattice('FCC').map(p => ({...p, el: 'Ca'}));
+                    const holes = [
+                        [0.25,0.25,0.25], [0.75,0.25,0.25], [0.25,0.75,0.25], [0.75,0.75,0.25],
+                        [0.25,0.25,0.75], [0.75,0.25,0.75], [0.25,0.75,0.75], [0.75,0.75,0.75]
+                    ];
+                    holes.forEach(p => atoms.push({x:p[0], y:p[1], z:p[2], el: 'F'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.5),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'cu2o', category: '离子晶体', title: '氧化亚铜 (Cu2O)',
+                keywords: ['赤铜矿', 'Cu⁺直线型配位', 'O²⁻四面体配位'],
+                info: { system: '立方晶系', cn: '2:4', z: '2' },
+                generator: () => {
+                    const atoms = [];
+                    // O: BCC Lattice Points (Corners + Body Center)
+                    // Corners
+                    for(let x=0; x<=1; x++) for(let y=0; y<=1; y++) for(let z=0; z<=1; z++) 
+                        atoms.push({x, y, z, el: 'O'});
+                    // Body Center
+                    atoms.push({x:0.5, y:0.5, z:0.5, el: 'O'});
+                    
+                    // Cu: Tetrahedral sites (4 inside cell)
+                    const cuPos = [
+                        [0.25, 0.25, 0.25], [0.75, 0.75, 0.25],
+                        [0.75, 0.25, 0.75], [0.25, 0.75, 0.75]
+                    ];
+                    cuPos.forEach(p => atoms.push({x:p[0], y:p[1], z:p[2], el: 'Cu'}));
+                    
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.45),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'zns', category: '离子晶体', title: '硫化锌 (ZnS)',
+                keywords: ['闪锌矿', 'F-43m', '金刚石结构'],
+                info: { system: '立方晶系', cn: '4:4', z: '4' },
+                generator: () => {
+                    const atoms = [];
+                    // 1. 生成 Zn 原子：面心立方点阵 (FCC)
+                    // 包含所有顶点和面心 (0 到 1 的范围)
+                    const fcc = genLattice('FCC');
+                    fcc.forEach(p => {
+                        atoms.push({...p, el: 'Zn'});
+                    });
+
+                    // 2. 生成 S 原子：填充在四面体空隙中
+                    // 仅添加位于晶胞内部的4个硫原子，不进行额外的偏移和折叠，避免丢失
+                    const sPos = [
+                        {x: 0.25, y: 0.25, z: 0.25},
+                        {x: 0.75, y: 0.75, z: 0.25},
+                        {x: 0.75, y: 0.25, z: 0.75},
+                        {x: 0.25, y: 0.75, z: 0.75}
+                    ];
+                    sPos.forEach(p => {
+                        atoms.push({...p, el: 'S'});
+                    });
+                    
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.45),
+                        cell: { type: 'cubic', a: 1 },
+                        cifData: {
+                            a: 5.41, b: 5.41, c: 5.41,
+                            alpha: 90, beta: 90, gamma: 90,
+                            sg: 'F-43m',
+                            atoms: [
+                                { label: 'Zn', x: 0, y: 0, z: 0 },
+                                { label: 'S', x: 0.25, y: 0.25, z: 0.25 }
+                            ]
+                        }
+                    };
+                }
+            },
+            // --- 3. 金属晶体 ---
+            {
+                id: 'cu', category: '金属晶体', title: '铜 (Cu)',
+                keywords: ['金属键', '最密堆积', '延展性'],
+                info: { system: '面心立方', cn: '12', z: '4' },
+                generator: () => {
+                    const atoms = genLattice('FCC').map(p => ({...p, el: 'Cu'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.71),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'na_metal', category: '金属晶体', title: '钠 (Na)',
+                keywords: ['体心立方堆积', '质软', '熔点低'],
+                info: { system: '体心立方', cn: '8', z: '2' },
+                generator: () => {
+                    const atoms = genLattice('BCC').map(p => ({...p, el: 'Na'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.87),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'zn', category: '金属晶体', title: '锌 (Zn)',
+                keywords: ['六方最密堆积 (HCP)', 'ABAB...', 'Z=2'],
+                info: { system: '六方晶系', cn: '12', z: '2' },
+                generator: () => {
+                    const atoms = [];
+                    const c_h = 1.633;
+                    const toCart = (u,v,w) => ({
+                        x: u - 0.5 * v,
+                        y: 0.866 * v,
+                        z: w * c_h,
+                        el: 'Zn'
+                    });
+                    const corners = [
+                        [0,0,0], [1,0,0], [0,1,0], [1,1,0],
+                        [0,0,1], [1,0,1], [0,1,1], [1,1,1]
+                    ];
+                    corners.forEach(p => atoms.push(toCart(p[0], p[1], p[2])));
+                    atoms.push(toCart(2/3, 1/3, 0.5));
+                    
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 1.1),
+                        cell: { type: 'hexagonal', a: 1, c: c_h }
+                    };
+                }
+            },
+            // --- 4. 共价晶体 ---
+            {
+                id: 'diamond', category: '共价晶体', title: '金刚石 (C)',
+                keywords: ['共价键', '正四面体结构', '硬度极大'],
+                info: { system: '立方晶系', cn: '4', z: '8' },
+                generator: () => {
+                    const atoms = [];
+                    const fcc = genLattice('FCC');
+                    fcc.forEach(p => atoms.push({...p, el: 'C'}));
+                    const basis = [
+                        {x:0.25, y:0.25, z:0.25}, 
+                        {x:0.25, y:0.75, z:0.75}, 
+                        {x:0.75, y:0.25, z:0.75}, 
+                        {x:0.75, y:0.75, z:0.25}
+                    ];
+                    basis.forEach(b => atoms.push({...b, el: 'C'}));
+
+                    const eps = 0.01;
+                    const validAtoms = atoms.filter(a => 
+                        a.x >= -eps && a.x <= 1+eps &&
+                        a.y >= -eps && a.y <= 1+eps &&
+                        a.z >= -eps && a.z <= 1+eps
+                    );
+                    return { 
+                        atoms: validAtoms, 
+                        bonds: getBonds(validAtoms, 0.45),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            },
+            {
+                id: 'si', category: '共价晶体', title: '晶体硅 (Si)',
+                keywords: ['半导体', '同金刚石结构', '键长较长'],
+                info: { system: '立方晶系', cn: '4', z: '8' },
+                generator: () => {
+                    const data = structures.find(s=>s.id==='diamond').generator();
+                    data.atoms.forEach(a => a.el = 'Si');
+                    return data;
+                }
+            },
+            // --- 5. 分子晶体 ---
+            {
+                id: 'i2', category: '分子晶体', title: '碘 (I2)',
+                keywords: ['正交晶系', 'Cmca', '层状结构'],
+                info: { system: '正交晶系', cn: '12', z: '4' },
+                type: 'molecular', // 标记为分子晶体
+                generator: () => {
+                    // I2 结构：用户要求简化为长方体晶胞 (正交晶系)
+                    // 使用 FCC 堆积模式，但将晶胞拉伸为长方体 (a:b:c 不相等)
+                    
+                    // 设定长方体比例 (模拟碘晶体的层状/正交特征)
+                    // a, b, c 比例设定 (扩大晶胞大小，避免原子重叠)
+                    const scaleA = 0.72 * 1.6; // 扩大 1.6 倍
+                    const scaleB = 0.47 * 1.6;
+                    const scaleC = 0.98 * 1.6;
+
+                    const atoms = [];
+                    // 使用面心立方 (FCC) 点阵作为基础
+                    const fcc = genLattice('FCC');
+                    
+                    fcc.forEach((p, idx) => {
+                        // 将 FCC 的 0-1 坐标映射到长方体尺寸
+                        const x = p.x * scaleA;
+                        const y = p.y * scaleB;
+                        const z = p.z * scaleC;
+                        
+                        // 在每个晶格点放置一个 I2 分子 (两个碘原子)
+                        // 分子取向：根据层 (z坐标) 交替变化，模拟 Cmca 结构的鱼骨状排列
+                        const bondLen = 0.15; // I-I 键长的一半
+                        
+                        // 判断层：z 接近 0 或 1 为 A 层，接近 0.5 为 B 层
+                        const isLayerB = Math.abs((p.z % 1) - 0.5) < 0.1;
+                        
+                        // 设置两种不同的倾斜角 (绕 Y 轴旋转)
+                        // A 层倾斜 +35度，B 层倾斜 -35度
+                        const angle = isLayerB ? (35 * Math.PI / 180) : (-35 * Math.PI / 180);
+                        
+                        const dx = bondLen * Math.sin(angle);
+                        const dz = bondLen * Math.cos(angle);
+                        
+                        // 分子 ID (moleculeId)
+                        const molId = idx;
+
+                        atoms.push({
+                            x: x + dx, 
+                            y: y, 
+                            z: z - dz, 
+                            el: 'I',
+                            moleculeId: molId
+                        });
+                        atoms.push({
+                            x: x - dx, 
+                            y: y, 
+                            z: z + dz, 
+                            el: 'I',
+                            moleculeId: molId
+                        });
+                    });
+
+                    return { 
+                        atoms, 
+                        // 调整键长阈值以连接分子内的原子
+                        bonds: getBonds(atoms, 0.35), 
+                        cell: { type: 'orthorhombic', a: scaleA, b: scaleB, c: scaleC },
+                        cifData: {
+                            a: 7.18, b: 4.71, c: 9.81,
+                            alpha: 90, beta: 90, gamma: 90,
+                            sg: 'Cmca',
+                            atoms: [
+                                { label: 'I', x: 0, y: 0.1543, z: 0.1174 }
+                            ]
+                        }
+                    };
+                }
+            },
+            {
+                id: 'co2', category: '分子晶体', title: '干冰 (CO2)',
+                keywords: ['Pa3空间群', '面心立方堆积', '直线型分子'],
+                info: { system: '立方晶系', cn: '12', z: '4' },
+                type: 'molecular', // 标记为分子晶体
+                generator: () => {
+                    const atoms = [];
+                    const centers = genLattice('FCC');
+                    centers.forEach((p, idx) => {
+                        // C atom
+                        atoms.push({x:p.x, y:p.y, z:p.z, el: 'C', moleculeId: idx});
+                        
+                        const d = 0.12;
+                        const sum = Math.round((p.x+p.y+p.z)*2);
+                        let dx=d, dy=d, dz=d;
+                        if(sum%4 === 0) { dx=d; dy=d; dz=d; }
+                        else if(sum%4 === 1) { dx=d; dy=-d; dz=-d; }
+                        else if(sum%4 === 2) { dx=-d; dy=d; dz=-d; }
+                        else { dx=-d; dy=-d; dz=d; }
+
+                        // O atoms
+                        atoms.push({x:p.x+dx, y:p.y+dy, z:p.z+dz, el: 'O', radius: 0.18, moleculeId: idx});
+                        atoms.push({x:p.x-dx, y:p.y-dy, z:p.z-dz, el: 'O', radius: 0.18, moleculeId: idx});
+                    });
+                    
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.35),
+                        cell: { type: 'cubic', a: 1 }
+                    }; 
+                }
+            },
+            {
+                id: 'ice', category: '分子晶体', title: '冰 (H2O)',
+                keywords: ['氢键', '四面体方向', '六方晶系'],
+                info: { system: '六方晶系', cn: '4', z: '4' },
+                generator: () => {
+                    const atoms = [];
+                    const bonds = [];
+                    const c_a = 1.6;
+                    const toCart = (u,v,w) => ({
+                        x: u - 0.5 * v,
+                        y: 0.866 * v,
+                        z: w * c_a,
+                        el: 'O'
+                    });
+
+                    // Ice Ih Lattice
+                    const o_fracs = [
+                        [0,0,0], [0,0,0.375],
+                        [2/3,1/3,0.5], [2/3,1/3,0.875],
+                        // Corners for visual completeness
+                        [1,0,0], [1,0,0.375], [0,1,0], [0,1,0.375], [1,1,0], [1,1,0.375],
+                        [0,0,1], [1,0,1], [0,1,1], [1,1,1]
+                    ];
+                    
+                    const oxygens = [];
+                    o_fracs.forEach((p, i) => {
+                        const o = toCart(p[0], p[1], p[2]);
+                        o.isOxygen = true; // marker
+                        o.idx = i; // 添加索引用于去重
+                        atoms.push(o);
+                        oxygens.push(o);
+                    });
+
+                    // Add Hydrogens & Bonds
+                    // Simplified: Place H towards nearest neighbors
+                    for(let i=0; i<oxygens.length; i++) {
+                        const o1 = oxygens[i];
+                        let neighbors = [];
+                        for(let j=0; j<oxygens.length; j++) {
+                            if(i===j) continue;
+                            const o2 = oxygens[j];
+                            const dist = Math.hypot(o1.x-o2.x, o1.y-o2.y, o1.z-o2.z);
+                            if(dist < 0.8) neighbors.push(o2);
+                        }
+                        
+                        // Sort by distance and pick closest 4 (tetrahedral)
+                        neighbors.sort((a,b) => {
+                             const da = Math.hypot(o1.x-a.x, o1.y-a.y, o1.z-a.z);
+                             const db = Math.hypot(o1.x-b.x, o1.y-b.y, o1.z-b.z);
+                             return da - db;
+                        });
+                        
+                        // We need 2 covalent H's and 2 H-bonds per Oxygen roughly
+                        for(let k=0; k<Math.min(neighbors.length, 4); k++) {
+                            const o2 = neighbors[k];
+                            // Check if bond already exists
+                            // 修复：使用索引比较代替 x 坐标比较，避免漏掉垂直方向(x相同)的键
+                            if(o1.idx < o2.idx) { 
+                                // H-bond logic: One O has H, other accepts
+                                // Visualize: Solid bond O-H, Dotted H...O
+                                // 修改：将H原子初始位置设为两个氧原子的中点 (0.5)，以便于进行从一端到另一端的振荡动画
+                                const hx = o1.x + (o2.x-o1.x)*0.5;
+                                const hy = o1.y + (o2.y-o1.y)*0.5;
+                                const hz = o1.z + (o2.z-o1.z)*0.5;
+                                
+                                const hAtom = {x:hx, y:hy, z:hz, el:'H'};
+                                
+                                // 添加振动动画数据 (用户请求: 模拟 3000cm^-1 伸缩振动)
+                                // 振动方向沿 O-H...O 连线方向 (即 o2 - o1)
+                                hAtom.animData = {
+                                    type: 'oscillation',
+                                    dir: { x: o2.x-o1.x, y: o2.y-o1.y, z: o2.z-o1.z }, // 方向向量
+                                    phase: Math.random() * Math.PI * 2 // 随机相位，避免所有原子同步振动
+                                };
+                                
+                                atoms.push(hAtom);
+                                
+                                // Covalent Bond
+                                bonds.push({start: o1, end: hAtom});
+                                
+                                // Hydrogen Bond (Translucent)
+                                bonds.push({start: hAtom, end: o2, type: 'hbond'});
+                            }
+                        }
+                    }
+
+                    return { 
+                        atoms, 
+                        bonds,
+                        cell: { type: 'hexagonal', a: 1, c: c_a }
+                    };
+                }
+            },
+
+            // --- 5. 混合型晶体 ---
+            {
+                id: 'graphite', category: '混合型晶体', title: '石墨 (C)',
+                keywords: ['层状结构', '大π键', '六方晶系'],
+                info: { system: '六方晶系', cn: '3', z: '4' },
+                generator: () => {
+                    const atoms = [];
+                    // 石墨晶胞参数
+                    const a = 2.46;
+                    const c = 6.70;
+                    const c_ratio = c/a; // ~2.72
+
+                    // 晶胞内的4个碳原子 (P63/mmc) 以及为了视觉完整性补充的边界原子
+                    const coords = [
+                        // Layer A (z=0)
+                        {x: 0, y: 0, z: 0},
+                        {x: 1/3, y: 2/3, z: 0},
+                        
+                        // Layer B (z=0.5)
+                        {x: 0, y: 0, z: 0.5},
+                        {x: 2/3, y: 1/3, z: 0.5},
+
+                        // --- 视觉边界补充 (Visual Boundary) ---
+                        // x, y 方向的周期性副本 (针对位于原点 0,0 的原子)
+                        {x: 1, y: 0, z: 0}, {x: 0, y: 1, z: 0}, {x: 1, y: 1, z: 0},
+                        {x: 1, y: 0, z: 0.5}, {x: 0, y: 1, z: 0.5}, {x: 1, y: 1, z: 0.5},
+
+                        // z 方向的周期性副本 (即 Top Face z=1，复制所有 z=0 的原子)
+                        {x: 0, y: 0, z: 1}, {x: 1/3, y: 2/3, z: 1},
+                        {x: 1, y: 0, z: 1}, {x: 0, y: 1, z: 1}, {x: 1, y: 1, z: 1}
+                    ];
+
+                    // 六方晶系坐标转换
+                    const toCart = (u,v,w) => ({
+                        x: u - 0.5 * v,
+                        y: 0.866 * v,
+                        z: w * c_ratio,
+                        el: 'C'
+                    });
+
+                    coords.forEach(p => {
+                        atoms.push(toCart(p.x, p.y, p.z));
+                    });
+                    
+                    // 键连：层内共价键
+                    // 键长约 1.42A (即 a/sqrt(3))
+                    // 在可视化比例中，a=1，键长约 0.577
+                    // 阈值设为 0.65 即可连接层内，排除层间 (层间约 2.72/2 = 1.36)
+                    
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.65), 
+                        cell: { type: 'hexagonal', a: 1, c: c_ratio }
+                    };
+                }
+            },
+            // --- 6. 拔高与拓展 ---
+            {
+                id: 'catio3', category: '拓展结构', title: '钙钛矿 (CaTiO3)',
+                keywords: ['ABO3型', '八面体空隙', '高温超导母体'],
+                info: { system: '立方晶系', cn: '12:6', z: '1' },
+                generator: () => {
+                    const atoms = [];
+                    genLattice('SC').forEach(p => atoms.push({...p, el: 'Ca'}));
+                    atoms.push({x:0.5, y:0.5, z:0.5, el: 'Ti'});
+                    [[0.5,0.5,0], [0.5,0.5,1], [0.5,0,0.5], [0.5,1,0.5], [0,0.5,0.5], [1,0.5,0.5]]
+                    .forEach(p => atoms.push({x:p[0], y:p[1], z:p[2], el: 'O'}));
+                    return { 
+                        atoms, 
+                        bonds: getBonds(atoms, 0.6),
+                        cell: { type: 'cubic', a: 1 }
+                    };
+                }
+            }
+        ];
+
+        // Helper: Find bonds based on distance
+        function getBonds(atoms, maxDist) {
+            const bonds = [];
+            for(let i=0; i<atoms.length; i++) {
+                for(let j=i+1; j<atoms.length; j++) {
+                    const dx = atoms[i].x - atoms[j].x;
+                    const dy = atoms[i].y - atoms[j].y;
+                    const dz = atoms[i].z - atoms[j].z;
+                    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                    if(dist < maxDist && dist > 0.01) {
+                        bonds.push({start: atoms[i], end: atoms[j]});
+                    }
+                }
+            }
+            return bonds;
+        }
+
+        // --- Three.js Implementation ---
+        let scene, camera, renderer, controls;
+        let rootGroup;
+        let frameId;
+        
+        // 交互相关
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let ghostGroup; // 用于存放临时生成的"幽灵原子"
+
+        function init() {
+            // Setup
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            // Fog for depth
+            scene.fog = new THREE.FogExp2(0x050510, 0.15);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+            camera.position.set(3, 2, 3);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 1.0;
+
+            // Lights
+            const ambient = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambient);
+
+            const pointLight = new THREE.PointLight(0xffffff, 1);
+            pointLight.position.set(10, 10, 10);
+            scene.add(pointLight);
+            
+            const blueLight = new THREE.PointLight(0x00f3ff, 2, 20);
+            blueLight.position.set(-5, 5, -5);
+            scene.add(blueLight);
+
+            // Root Group for structures
+            rootGroup = new THREE.Group();
+            scene.add(rootGroup);
+
+            // Ghost Group for CN highlighting
+            ghostGroup = new THREE.Group();
+            scene.add(ghostGroup);
+
+            // Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('click', onMouseClick, false);
+
+            // Start loop
+            animate();
+            
+            // UI Init
+            initUI();
+            
+            // Load first
+            document.getElementById('loading').style.display = 'none';
+            controls.saveState(); // Save initial view for reset
+            loadStructure(0);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- 交互逻辑：点击原子显示配位数 ---
+        function onMouseClick(event) {
+            // 计算鼠标位置
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // 检测交叉
+            if (!rootGroup) return;
+
+            const intersects = raycaster.intersectObjects(rootGroup.children, true);
+
+            if (intersects.length > 0) {
+                // 找到第一个是原子的对象
+                let target = null;
+                for(let hit of intersects) {
+                     let obj = hit.object;
+                     while(obj && obj !== rootGroup) {
+                         if(obj.userData && obj.userData.index !== undefined) {
+                             target = obj;
+                             break;
+                         }
+                         obj = obj.parent;
+                     }
+                     if(target) break;
+                }
+
+                if (target) {
+                    const atomIndex = target.userData.index;
+                    const atomData = currentStructureData.atoms[atomIndex];
+                    
+                    // 冰晶体特殊处理：只能点击氧原子 (用户要求：冰晶胞中只能点击氧原子，显示邻近的4个氧原子)
+                    if (currentStructureData.id === 'ice' && atomData.el === 'H') {
+                        return; // 忽略点击 H
+                    }
+
+                    // 交互优化：再次点击已点亮原子时取消高亮
+                    // 对于分子晶体，如果点击的是同一个分子，也视为取消
+                    let isSameSelection = false;
+                    
+                    if (state.selectedAtom) {
+                        if (currentStructureData.type === 'molecular' && atomData.moleculeId !== undefined) {
+                            // 检查是否是同一个分子
+                            const selectedIndex = state.selectedAtom.userData.index;
+                            const selectedData = currentStructureData.atoms[selectedIndex];
+                            if (selectedData.moleculeId === atomData.moleculeId) {
+                                isSameSelection = true;
+                            }
+                        } else {
+                            // 原子晶体/离子晶体/金属晶体
+                            if (state.selectedAtom.userData.index === atomIndex) {
+                                isSameSelection = true;
+                            }
+                        }
+                    }
+
+                    if (isSameSelection) {
+                        clearHighlights();
+                    } else {
+                        // 分子晶体逻辑 vs 原子逻辑
+                        if (currentStructureData.type === 'molecular' && atomData.moleculeId !== undefined) {
+                            highlightMoleculeNeighbors(target);
+                        } else {
+                            highlightNeighbors(target);
+                        }
+                    }
+                } else {
+                    clearHighlights();
+                }
+            } else {
+                // 点击空白处清除高亮
+                clearHighlights();
+            }
+        }
+
+        function clearHighlights() {
+            // 清除状态
+            state.selectedAtom = null;
+
+            // 恢复所有原子的材质 (取消暗化)
+            restoreMaterials();
+
+            // 清除幽灵原子和连线 (都在 ghostGroup 中)
+            while(ghostGroup.children.length > 0) {
+                const child = ghostGroup.children[0];
+                if(child.geometry) child.geometry.dispose();
+                if(child.material) child.material.dispose();
+                // 如果是 Sprite (文字)，释放 texture
+                if(child.material && child.material.map) child.material.map.dispose();
+                ghostGroup.remove(child);
+            }
+            
+            // 清除所有原子的光晕 (Halo)
+            if(rootGroup) {
+                rootGroup.traverse(obj => {
+                    // 移除名为 'halo' 的子对象
+                    const halos = obj.children.filter(c => c.name === 'halo');
+                    halos.forEach(h => {
+                        if(h.geometry) h.geometry.dispose();
+                        if(h.material) {
+                            if(h.material.map) h.material.map.dispose(); // Dispose texture if sprite
+                            h.material.dispose();
+                        }
+                        obj.remove(h);
+                    });
+                });
+            }
+
+            document.getElementById('cn-display').style.display = 'none';
+        }
+
+        // 辅助：暗化非活跃原子
+        function dimNonActiveAtoms(activeIndices) {
+            rootGroup.traverse(obj => {
+                // 检查对象是否为原子 (带有 index)
+                if (obj.userData && obj.userData.index !== undefined) {
+                    const idx = obj.userData.index;
+                    const isActive = activeIndices.has(idx);
+                    
+                    const applyToMesh = (mesh) => {
+                         if (!mesh.isMesh) return;
+                         // 跳过光晕 (halo)
+                         if (mesh.name === 'halo') return;
+
+                         if (!mesh.userData.originalMaterial) {
+                             mesh.userData.originalMaterial = mesh.material;
+                         }
+                         
+                         if (isActive) {
+                            // 活跃原子：增强亮度 (发光)
+                            if (mesh.material === mesh.userData.originalMaterial) {
+                                const bright = mesh.material.clone();
+                                bright.emissive = mesh.material.color;
+                                bright.emissiveIntensity = 0.6; // 增加自发光
+                                bright.roughness = 0.2; // 增加光泽
+                                mesh.material = bright;
+                            }
+                        } else {
+                             // 非活跃原子：暗化
+                             if (mesh.material === mesh.userData.originalMaterial) {
+                                 const dimmed = mesh.material.clone();
+                                 dimmed.transparent = true;
+                                 dimmed.opacity = 0.1; // 极低不透明度
+                                 dimmed.roughness = 1.0; // 减少反光
+                                 dimmed.metalness = 0.0;
+                                 mesh.material = dimmed;
+                             }
+                         }
+                    };
+
+                    if (obj.isMesh) {
+                        applyToMesh(obj);
+                    }
+                    if (obj.children) {
+                        obj.children.forEach(child => {
+                            applyToMesh(child);
+                        });
+                    }
+                }
+            });
+        }
+
+        // 辅助：恢复所有原子材质
+        function restoreMaterials() {
+             rootGroup.traverse(obj => {
+                 const restore = (mesh) => {
+                     if (mesh.userData && mesh.userData.originalMaterial) {
+                         mesh.material.dispose(); // 释放克隆的材质
+                         mesh.material = mesh.userData.originalMaterial;
+                         delete mesh.userData.originalMaterial;
+                     }
+                 };
+                 
+                 if (obj.isMesh) restore(obj);
+                 if (obj.children) {
+                     obj.children.forEach(child => {
+                         if (child.isMesh) restore(child);
+                     });
+                 }
+             });
+        }
+
+        function highlightMoleculeNeighbors(targetLOD) {
+            clearHighlights();
+            state.selectedAtom = targetLOD;
+            
+            const atomIndex = targetLOD.userData.index;
+            const originalData = currentStructureData;
+            const targetAtom = originalData.atoms[atomIndex];
+            const targetMolId = targetAtom.moleculeId;
+            
+            if (targetMolId === undefined) return;
+
+            // 1. 高亮选中分子的所有原子
+            const molAtomsIndices = [];
+            originalData.atoms.forEach((a, idx) => {
+                if (a.moleculeId === targetMolId) molAtomsIndices.push(idx);
+            });
+
+            molAtomsIndices.forEach(idx => {
+                rootGroup.traverse(obj => {
+                    if (obj.userData && obj.userData.index === idx) {
+                        const color = CONFIG.colors[originalData.atoms[idx].el] || 0xffffff;
+                        highlightAtom(obj, color);
+                    }
+                });
+            });
+
+            // 2. 计算选中分子的质心 (COM)
+            let comX=0, comY=0, comZ=0;
+            molAtomsIndices.forEach(idx => {
+                comX += originalData.atoms[idx].x;
+                comY += originalData.atoms[idx].y;
+                comZ += originalData.atoms[idx].z;
+            });
+            comX /= molAtomsIndices.length;
+            comY /= molAtomsIndices.length;
+            comZ /= molAtomsIndices.length;
+
+            // 3. 搜索邻近分子 (3x3x3 范围)
+            const uniqueMolIds = [...new Set(originalData.atoms.map(a => a.moleculeId))].filter(id => id !== undefined);
+            const candidates = [];
+            const visited = new Set();
+            
+            const cell = originalData.cell;
+            const vectors = [];
+            if (cell.type === 'hexagonal') {
+                const c = cell.c || 1.633;
+                vectors.push({x: 1, y: 0, z: 0});
+                vectors.push({x: -0.5, y: 0.866, z: 0});
+                vectors.push({x: 0, y: 0, z: c});
+            } else if (cell.type === 'orthorhombic') {
+                vectors.push({x: cell.a, y: 0, z: 0});
+                vectors.push({x: 0, y: cell.b, z: 0});
+                vectors.push({x: 0, y: 0, z: cell.c});
+            } else {
+                vectors.push({x: 1, y: 0, z: 0});
+                vectors.push({x: 0, y: 1, z: 0});
+                vectors.push({x: 0, y: 0, z: 1});
+            }
+            
+            for(let i=-1; i<=1; i++) {
+                for(let j=-1; j<=1; j++) {
+                    for(let k=-1; k<=1; k++) {
+                        const shiftX = i*vectors[0].x + j*vectors[1].x + k*vectors[2].x;
+                        const shiftY = i*vectors[0].y + j*vectors[1].y + k*vectors[2].y;
+                        const shiftZ = i*vectors[0].z + j*vectors[1].z + k*vectors[2].z;
+                        
+                        uniqueMolIds.forEach(mid => {
+                            if (i===0 && j===0 && k===0 && mid === targetMolId) return;
+                            
+                            // 计算候选分子的质心
+                            const atomsOfMol = originalData.atoms.filter(a => a.moleculeId === mid);
+                            let cx=0, cy=0, cz=0;
+                            atomsOfMol.forEach(a => {
+                                cx += a.x;
+                                cy += a.y;
+                                cz += a.z;
+                            });
+                            cx /= atomsOfMol.length;
+                            cy /= atomsOfMol.length;
+                            cz /= atomsOfMol.length;
+                            
+                            const pcx = cx + shiftX;
+                            const pcy = cy + shiftY;
+                            const pcz = cz + shiftZ;
+                            
+                            // 去重
+                            const key = `${pcx.toFixed(3)},${pcy.toFixed(3)},${pcz.toFixed(3)}`;
+                            if(visited.has(key)) return;
+                            visited.add(key);
+
+                            const d = Math.sqrt((pcx-comX)**2 + (pcy-comY)**2 + (pcz-comZ)**2);
+                            
+                            candidates.push({
+                                d: d,
+                                mid: mid,
+                                atoms: atomsOfMol,
+                                shift: {x: shiftX, y: shiftY, z: shiftZ},
+                                center: {x: pcx, y: pcy, z: pcz}, // 分子中心
+                                isOriginal: (i===0 && j===0 && k===0)
+                            });
+                        });
+                    }
+                }
+            }
+            
+            let minDist = Infinity;
+            candidates.forEach(c => { if(c.d < minDist) minDist = c.d; });
+            
+            let neighbors = [];
+            if (originalData.id === 'i2' || originalData.id === 'co2') {
+                 // 碘/干冰晶体特殊处理：由于晶胞被拉伸或为了符合配位规则
+                 // 我们直接选取距离最近的 12 个分子
+                 candidates.sort((a,b) => a.d - b.d);
+                 neighbors = candidates.slice(0, 12);
+            } else {
+                 // 标准逻辑：选取距离最近的一层原子/分子 (允许微小误差)
+                 neighbors = candidates.filter(c => c.d >= minDist - 0.05 && c.d <= minDist + 0.05);
+            }
+            
+            const cn = neighbors.length;
+            
+            // 4. 收集活跃原子索引并执行暗化
+            const activeIndices = new Set();
+            // 添加目标分子的所有原子
+            molAtomsIndices.forEach(idx => activeIndices.add(idx));
+            // 添加晶胞内邻居分子的所有原子
+            neighbors.forEach(nb => {
+                if (nb.isOriginal) {
+                    nb.atoms.forEach(atom => {
+                        const idx = originalData.atoms.indexOf(atom);
+                        if (idx !== -1) activeIndices.add(idx);
+                    });
+                }
+            });
+            dimNonActiveAtoms(activeIndices);
+
+            // 5. 高亮邻居并创建幽灵原子/质点
+            // 场景中心偏移 (所有 createGhostAtom 需要减去此偏移)
+            // 我们通过 targetLOD 获取偏移：targetLOD.position = targetAtom.pos - boxCenter
+            // boxCenter = targetAtom.pos - targetLOD.position
+            const boxCenter = new THREE.Vector3(
+                targetAtom.x - targetLOD.position.x,
+                targetAtom.y - targetLOD.position.y,
+                targetAtom.z - targetLOD.position.z
+            );
+
+            neighbors.forEach(nb => {
+                // 使用质点 (Proxy) 代替全原子显示，避免视觉混乱
+                const el = nb.atoms[0].el; // 取第一个原子的颜色作为代表色
+                const color = CONFIG.colors[el] || 0xffffff;
+                
+                if (nb.isOriginal) {
+                    // 1. 晶胞内的分子：保持原样，仅高亮显示 (不使用质点)
+                    // 遍历该分子的所有原子并高亮
+                    nb.atoms.forEach(atom => {
+                        // 需要找到该原子在 originalData.atoms 中的索引
+                        const idx = originalData.atoms.indexOf(atom);
+                        if (idx !== -1) {
+                            // 在场景中找到对应的对象
+                            rootGroup.traverse(obj => {
+                                if (obj.userData && obj.userData.index === idx) {
+                                    highlightAtom(obj, color);
+                                }
+                            });
+                        }
+                    });
+                } else {
+                    // 2. 晶胞外的分子 (新增)：使用质点表示
+                    createMoleculeProxy(nb.center, boxCenter, color);
+                }
+                
+                // 绘制连线 (中心到中心) - 对所有邻居都绘制，保持视觉连贯性
+                createProxyLine({x: comX, y: comY, z: comZ}, nb.center, boxCenter);
+            });
+            
+            createCNLabel(cn, targetLOD, targetAtom.el);
+        }
+
+        // 辅助：创建分子质点 (Proxy)
+        function createMoleculeProxy(pos, offset, colorHex) {
+            // 质点主体 (发光球体) - 缩小尺寸 (0.35 -> 0.12)
+            const geometry = new THREE.SphereGeometry(0.12, 16, 16);
+            const material = new THREE.MeshStandardMaterial({
+                color: colorHex,
+                emissive: colorHex,
+                emissiveIntensity: 1.2, // 大幅增加亮度 (0.6 -> 1.2)
+                transparent: true,
+                opacity: 1.0,
+                roughness: 0.1,
+                metalness: 0.2
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(pos.x - offset.x, pos.y - offset.y, pos.z - offset.z);
+            mesh.name = 'ghost'; // 确保能被 clearHighlights 清除
+            ghostGroup.add(mesh);
+            
+            // 外部光晕 (Halo) - 缩小尺寸 (0.5 -> 0.25)
+            const haloGeo = new THREE.SphereGeometry(0.25, 16, 16);
+            const haloMat = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: 0.6, // 增加光晕不透明度
+                depthWrite: false
+            });
+            const halo = new THREE.Mesh(haloGeo, haloMat);
+            halo.name = 'halo';
+            mesh.add(halo);
+        }
+
+        // 辅助：创建分子间连线
+        function createProxyLine(start, end, offset) {
+             const points = [];
+             points.push(new THREE.Vector3(start.x - offset.x, start.y - offset.y, start.z - offset.z));
+             points.push(new THREE.Vector3(end.x - offset.x, end.y - offset.y, end.z - offset.z));
+             
+             const geometry = new THREE.BufferGeometry().setFromPoints(points);
+             // 虚线材质在 LineBasicMaterial 中不直接支持 dash，需要 computeLineDistances 和 LineDashedMaterial
+             // 这里先用半透明实线，简洁为主
+             const material = new THREE.LineBasicMaterial({ 
+                 color: 0x00ffff, 
+                 transparent: true, 
+                 opacity: 0.3,
+                 linewidth: 1
+             });
+             const line = new THREE.Line(geometry, material);
+             line.name = 'ghost';
+             ghostGroup.add(line);
+        }
+
+        function highlightNeighbors(targetLOD) {
+            clearHighlights();
+            state.selectedAtom = targetLOD; // 记录选中状态
+            
+            const atomIndex = targetLOD.userData.index;
+            const originalData = currentStructureData;
+            if(!originalData) return;
+
+            const targetAtom = originalData.atoms[atomIndex];
+            const cell = originalData.cell;
+
+            // 1. 确定晶格矢量 (用于 3x3x3 搜索)
+            const vectors = [];
+            if (cell.type === 'hexagonal') {
+                const c = cell.c || 1.633;
+                vectors.push({x: 1, y: 0, z: 0}); // a
+                vectors.push({x: -0.5, y: 0.866, z: 0}); // b
+                vectors.push({x: 0, y: 0, z: c}); // c
+            } else if (cell.type === 'orthorhombic') {
+                vectors.push({x: cell.a, y: 0, z: 0});
+                vectors.push({x: 0, y: cell.b, z: 0});
+                vectors.push({x: 0, y: 0, z: cell.c});
+            } else {
+                vectors.push({x: 1, y: 0, z: 0});
+                vectors.push({x: 0, y: 1, z: 0});
+                vectors.push({x: 0, y: 0, z: 1});
+            }
+            
+            // 2. 搜索 3x3x3 范围内的候选邻居
+            const candidates = [];
+            const minStart = 0.1; // 最小距离阈值 (排除重合点)
+            const visited = new Set(); // 用于去重 (坐标 key)
+
+            originalData.atoms.forEach((atom, idx) => {
+                for(let i=-1; i<=1; i++) {
+                    for(let j=-1; j<=1; j++) {
+                        for(let k=-1; k<=1; k++) {
+                            // 计算镜像位置
+                            const shiftX = i*vectors[0].x + j*vectors[1].x + k*vectors[2].x;
+                            const shiftY = i*vectors[0].y + j*vectors[1].y + k*vectors[2].y;
+                            const shiftZ = i*vectors[0].z + j*vectors[1].z + k*vectors[2].z;
+                            
+                            const px = atom.x + shiftX;
+                            const py = atom.y + shiftY;
+                            const pz = atom.z + shiftZ;
+                            
+                            // 排除自己
+                            if(idx === atomIndex && i===0 && j===0 && k===0) continue;
+                            
+                            const d = Math.sqrt(
+                                (px - targetAtom.x)**2 + 
+                                (py - targetAtom.y)**2 + 
+                                (pz - targetAtom.z)**2
+                            );
+                            
+                            if (d > minStart) {
+                                // 去重检查 (保留3位小数作为key)
+                                const key = `${px.toFixed(3)},${py.toFixed(3)},${pz.toFixed(3)},${atom.el}`;
+                                if(!visited.has(key)) {
+                                    visited.add(key);
+                                    candidates.push({
+                                        d: d,
+                                        x: px, y: py, z: pz,
+                                        el: atom.el,
+                                        isOriginal: (i===0 && j===0 && k===0),
+                                        originalIndex: idx
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 3. 应用配位规则筛选
+            // 判断是否为单质 (所有原子元素相同)
+            const isSingleElement = originalData.atoms.every(a => a.el === originalData.atoms[0].el);
+            
+            let finalNeighbors = [];
+            
+            if (isSingleElement) {
+                // 单质规则：找最近的等距原子 (误差范围 ±0.05Å)
+                let minDist = Infinity;
+                candidates.forEach(c => { if(c.d < minDist) minDist = c.d; });
+                finalNeighbors = candidates.filter(c => c.d >= minDist - 0.05 && c.d <= minDist + 0.05);
+            } else {
+                // 化合物规则：支持多重配位 (如 CaTiO3 中 O 配位 2Ti + 4Ca)
+                // 策略：对于每种"不同"的元素类型，分别寻找其最近邻
+                
+                const atomTypes = [...new Set(originalData.atoms.map(a => a.el))];
+                const targetType = targetAtom.el;
+
+                atomTypes.forEach(type => {
+                    // 1. 冰晶体特殊处理：只找 O-O 配位 (忽略 H)
+                    if (originalData.id === 'ice') {
+                        if (type !== 'O') return;
+                    } else {
+                        // 2. 一般化合物逻辑：
+                        
+                        // 规则 A: 排除同种元素 (除非特殊需求)
+                        if (type === targetType) return;
+
+                        // 规则 B: 电荷/价态规则 (Charge Rule)
+                        // 仅允许异性电荷配位 (阳离子找阴离子，阴离子找阳离子)
+                        // 如果电荷未定义或为0 (如金属/共价)，则不应用此规则 (退化为距离规则)
+                        const q1 = CONFIG.charges[targetType] || 0;
+                        const q2 = CONFIG.charges[type] || 0;
+                        
+                        if (q1 !== 0 && q2 !== 0) {
+                             // 如果符号相同 (同为正或同为负)，则互相排斥，不计入配位
+                             if (Math.sign(q1) === Math.sign(q2)) return;
+                        }
+                    }
+
+                    // 找到该类型原子的最近距离
+                    const typeCandidates = candidates.filter(c => c.el === type);
+                    if (typeCandidates.length === 0) return;
+
+                    let typeMin = Infinity;
+                    typeCandidates.forEach(c => { if(c.d < typeMin) typeMin = c.d; });
+
+                    // 筛选该类型中符合最近距离的原子
+                    const typeNeighbors = typeCandidates.filter(c => c.d >= typeMin - 0.05 && c.d <= typeMin + 0.05);
+                    finalNeighbors.push(...typeNeighbors);
+                });
+            }
+            
+            // 4. 收集活跃原子索引并执行暗化
+            const activeIndices = new Set();
+            activeIndices.add(atomIndex); // 自身
+            finalNeighbors.forEach(nb => {
+                if (nb.isOriginal) {
+                    activeIndices.add(nb.originalIndex); // 晶胞内邻居
+                }
+            });
+            dimNonActiveAtoms(activeIndices);
+
+            // 5. 显示与高亮
+            const cn = finalNeighbors.length;
+            
+            // 高亮自身 (光晕)
+            const selfColor = CONFIG.colors[targetAtom.el] || 0xffffff;
+            highlightAtom(targetLOD, selfColor);
+
+            // 计算 center 偏移 (用于 createGhostAtom)
+            const center = new THREE.Vector3();
+            center.x = targetAtom.x - targetLOD.position.x;
+            center.y = targetAtom.y - targetLOD.position.y;
+            center.z = targetAtom.z - targetLOD.position.z;
+
+            finalNeighbors.forEach(nb => {
+                const nbColor = CONFIG.colors[nb.el] || 0xffffff;
+                
+                if(nb.isOriginal) {
+                    // 尝试在场景中找到对应原子并高亮
+                    let found = false;
+                    rootGroup.traverse(obj => {
+                        if(obj.userData && obj.userData.index === nb.originalIndex) {
+                            highlightAtom(obj, nbColor);
+                            found = true;
+                        }
+                    });
+                    if(!found) createGhostAtom(nb, center, true);
+                } else {
+                    createGhostAtom(nb, center, true);
+                }
+                
+                // 绘制连线
+                const start = targetLOD.position.clone(); 
+                const end = new THREE.Vector3(nb.x - center.x, nb.y - center.y, nb.z - center.z);
+                
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([start, end]);
+                const lineMat = new THREE.LineBasicMaterial({ 
+                    color: 0x00ffff, // 青色
+                    transparent: true, 
+                    opacity: 0.4,
+                    depthTest: false 
+                });
+                const line = new THREE.Line(lineGeo, lineMat);
+                ghostGroup.add(line);
+            });
+            
+            // 5. 动态 CN 显示 (Follow Atom)
+            createCNLabel(cn, targetLOD, targetAtom.el);
+        }
+
+        // 视觉优化：使用半透明光晕替代改变材质
+        function highlightAtom(lodObj, colorHex) {
+            // 检查是否已有光晕，避免重复添加
+            if (lodObj.children.some(c => c.name === 'halo')) return;
+
+            const radius = lodObj.scale.x; // 获取原子半径 (LOD 根节点被缩放过)
+            // 创建光晕几何体 (比原子稍大)
+            const haloGeo = new THREE.SphereGeometry(1.4, 16, 16); 
+            // 为什么是 1.4? 基础 SphereGeometry 半径为 1，lodObj.scale 已经是原子半径
+            // 但这里我们是把 halo 加为 lodObj 的子对象，所以 halo 会继承 lodObj 的 scale
+            // 所以 halo 的实际半径 = 1.4 * lodObj.scale
+            
+            const haloMat = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: 0.4,
+                side: THREE.FrontSide,
+                depthWrite: false // 不写入深度缓冲区，避免遮挡内部原子
+            });
+            
+            const halo = new THREE.Mesh(haloGeo, haloMat);
+            halo.name = 'halo';
+            lodObj.add(halo);
+        }
+
+        function createGhostAtom(data, center, isHighlight = false) {
+            // 创建原子实体 (半透明)
+            const geometry = new THREE.SphereGeometry(1, 16, 16);
+            const color = CONFIG.colors[data.el] || 0xffffff;
+            const material = new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.3,
+                roughness: 0.5,
+                metalness: 0.5
+            });
+            
+            // 如果是高亮状态，增强亮度
+            if (isHighlight) {
+                material.opacity = 0.8;
+                material.emissive = color;
+                material.emissiveIntensity = 0.5;
+            }
+
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            // 设置位置
+            mesh.position.set(data.x - center.x, data.y - center.y, data.z - center.z);
+            
+            // 设置大小
+            const radius = CONFIG.radii[data.el] || CONFIG.atomScale;
+            mesh.scale.set(radius, radius, radius);
+            
+            // 如果是高亮状态，添加光晕
+            if (isHighlight) {
+                const haloGeo = new THREE.SphereGeometry(1.4, 16, 16);
+                const haloMat = new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 0.5, // 增加光晕不透明度
+                    depthWrite: false
+                });
+                const halo = new THREE.Mesh(haloGeo, haloMat);
+                mesh.add(halo);
+            }
+            
+            ghostGroup.add(mesh);
+        }
+
+        // 动态 CN 标签 (美化版)
+        function createCNLabel(cnValue, targetObj, element) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 512; // 提高分辨率
+            canvas.height = 256;
+            
+            // 绘制圆角矩形背景
+            const x = 20, y = 20, w = 472, h = 216, r = 40;
+            context.beginPath();
+            context.moveTo(x+r, y);
+            context.arcTo(x+w, y, x+w, y+h, r);
+            context.arcTo(x+w, y+h, x, y+h, r);
+            context.arcTo(x, y+h, x, y, r);
+            context.arcTo(x, y, x+w, y, r);
+            context.closePath();
+            
+            // 渐变填充
+            const gradient = context.createLinearGradient(0, 0, 0, 256);
+            gradient.addColorStop(0, 'rgba(0, 40, 80, 0.85)');
+            gradient.addColorStop(1, 'rgba(0, 20, 40, 0.95)');
+            context.fillStyle = gradient;
+            context.fill();
+            
+            // 边框
+            context.lineWidth = 8;
+            context.strokeStyle = 'rgba(0, 243, 255, 0.8)'; // 青色边框
+            context.stroke();
+            
+            // 绘制文字 "CN=X"
+            context.font = 'bold 140px "Segoe UI", Arial, sans-serif';
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            
+            // 文字阴影
+            context.shadowColor = 'rgba(0, 243, 255, 0.8)';
+            context.shadowBlur = 20;
+            context.fillStyle = '#ffffff';
+            
+            const text = "CN=" + cnValue;
+            context.fillText(text, 256, 128);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ 
+                map: texture, 
+                transparent: true,
+                depthTest: false // 确保显示在最前 (或者根据需求开启)
+            });
+            // 开启 depthTest: false 会导致透过模型看到标签，这可能不是想要的。
+            // 还是开启 depthTest 比较真实。
+            spriteMaterial.depthTest = true; 
+
+            const sprite = new THREE.Sprite(spriteMaterial);
+            
+            // 缩放设置
+            const scale = 5.0; 
+            sprite.scale.set(scale, scale * 0.5, 1);
+            
+            // 位置设置
+            sprite.position.set(0, 2.8, 0); // 稍微调高一点
+            sprite.name = 'halo'; // 统一管理
+            
+            targetObj.add(sprite);
+        }
+
+        function animate() {
+            frameId = requestAnimationFrame(animate);
+            
+            const time = Date.now();
+
+            // Breathing Box Effect
+            if(rootGroup) {
+                const timeSec = time * 0.001;
+                rootGroup.traverse(child => {
+                    if(child.name === 'unitBox') {
+                        // Pulse opacity between 0.1 and 0.4
+                        child.material.opacity = 0.25 + Math.sin(time * 0.003) * 0.15;
+                    }
+                    
+                    // 处理原子振动动画
+                    if(child.userData && child.userData.animData && !state.paused) {
+                         const data = child.userData.animData;
+                         if(data.type === 'oscillation') {
+                              // 模拟 O-H 伸缩振动 (3000 cm^-1)
+                              // 调整频率为 1Hz (2 * PI ≈ 6.28)
+                              const freq = 6.28; 
+                              
+                              // 归一化方向向量并获取键长
+                              const len = Math.sqrt(data.dir.x**2 + data.dir.y**2 + data.dir.z**2);
+                              
+                              if (len > 0) {
+                                 // 振幅设置优化：
+                                 // 用户要求：最近范围接触氧原子表面，最远范围接触另一个氧原子表面
+                                 // 此时H原子以两个氧原子的中点为平衡位置进行简谐振动
+                                 
+                                 const radiusO = CONFIG.radii.O || 0.18;
+                                 const radiusH = CONFIG.radii.H || 0.08;
+                                 
+                                 // 最小中心间距 = 氧原子半径 + 氢原子半径 (刚好接触表面)
+                                 const minCenterDist = radiusO + radiusH; 
+                                 
+                                 // 振幅计算：
+                                 // 整个可用空间长度 = len (O-O距离)
+                                 // 单侧可用空间 = len/2
+                                 // 允许的最大位移(振幅) = 单侧空间 - 最小接触距离
+                                 // 这样在极值点时，H原子距离O原子中心正好是 minCenterDist
+                                 const maxAmp = (len / 2) - minCenterDist;
+                                 const amp = Math.max(0, maxAmp);
+                                 
+                                 const offset = Math.sin(timeSec * freq + data.phase) * amp;
+                                 
+                                 const dx = (data.dir.x / len) * offset;
+                                 const dy = (data.dir.y / len) * offset;
+                                 const dz = (data.dir.z / len) * offset;
+                                 
+                                 child.position.set(
+                                     child.userData.basePos.x + dx,
+                                     child.userData.basePos.y + dy,
+                                     child.userData.basePos.z + dz
+                                 );
+                              }
+                          }
+                    }
+
+                    // 处理动态键 (更新位置和颜色)
+                    if(child.userData && child.userData.isDynamicBond && !state.paused) {
+                         const start = child.userData.startLOD.position;
+                         const end = child.userData.endLOD.position;
+                         const dist = start.distanceTo(end);
+                         
+                         // Update transform
+                         const mid = start.clone().add(end).multiplyScalar(0.5);
+                         child.position.copy(mid);
+                         
+                         const radius = child.scale.x; // Keep existing radius
+                         child.scale.set(radius, dist, radius);
+                         child.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), end.clone().sub(start).normalize());
+                         
+                         // Color Switch Logic
+                         // 距离长的为氢键(蓝色)，距离短的为共价键(白色)
+                         // 阈值使用初始距离 (约为 O-O 距离的一半)
+                         const threshold = child.userData.threshold || 0.35; // 默认 0.35 如果没设置
+                         if(dist > threshold) {
+                             child.material = child.userData.matHBond;
+                         } else {
+                             child.material = child.userData.matCovalent;
+                         }
+                    }
+                });
+            }
+            
+            // Demo Mode Logic
+            if(state.demoMode && !state.paused && !state.isTransitioning) {
+                controls.autoRotate = true;
+                
+                const now = Date.now();
+                // 确保时间戳已初始化
+                if (state.lastSwitchTime === 0) state.lastSwitchTime = now;
+                if (state.lastDemoActionTime === 0) state.lastDemoActionTime = now;
+
+                const timeSinceAction = now - state.lastDemoActionTime;
+                
+                // 状态机：Phase 0 -> 1...N -> N+1 -> Next Structure
+                if (state.demoPhase === 0) {
+                    // Phase 0: 初始全览展示 (Whole View)
+                    if (timeSinceAction > CONFIG.demoStayTime) {
+                        state.demoPhase = 1;
+                        state.lastDemoActionTime = now;
+                        state.demoActionDone = false;
+                    }
+                } else if (state.demoPhase <= state.demoTargets.length) {
+                    // Phase 1 to N: 配位高亮展示 (Highlight Types)
+                    
+                    // 执行高亮动作 (仅执行一次)
+                    if (!state.demoActionDone) {
+                        const targetIdx = state.demoTargets[state.demoPhase - 1];
+                        triggerDemoHighlight(targetIdx);
+                        state.demoActionDone = true;
+                    }
+                    
+                    // 等待高亮展示时间
+                    if (timeSinceAction > CONFIG.demoHighlightTime) {
+                        // 清除高亮并进入下一阶段
+                        clearHighlights();
+                        state.demoPhase++;
+                        state.lastDemoActionTime = now;
+                        state.demoActionDone = false;
+                    }
+                } else {
+                    // Phase N+1: 结束全览展示 (End Whole View)
+                    // 确保高亮已清除 (上个阶段结束时已清除)
+                    if (timeSinceAction > CONFIG.demoStayTime) {
+                        nextStructure();
+                        // nextStructure -> loadStructure 会重置 demoPhase 为 0
+                    }
+                }
+            } else {
+                controls.autoRotate = false;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        let transitionInterval = null;
+        let pendingGroup = null;
+
+        // 辅助：根据索引查找场景中的原子对象
+        function findAtomObjectByIndex(index) {
+            let target = null;
+            if (rootGroup) {
+                rootGroup.traverse(obj => {
+                    if (obj.userData && obj.userData.index === index) {
+                        target = obj;
+                    }
+                });
+            }
+            return target;
+        }
+
+        // 辅助：触发演示模式的高亮
+        function triggerDemoHighlight(atomIndex) {
+            const target = findAtomObjectByIndex(atomIndex);
+            if (!target) return;
+            
+            const atomData = currentStructureData.atoms[atomIndex];
+            
+            // 复用 onMouseClick 的分发逻辑
+            if (currentStructureData.type === 'molecular' && atomData.moleculeId !== undefined) {
+                highlightMoleculeNeighbors(target);
+            } else {
+                highlightNeighbors(target);
+            }
+        }
+
+        // 辅助：准备演示模式的目标原子
+        function prepareDemoTargets(data) {
+            state.demoTargets = [];
+            
+            if (!data || !data.atoms) return;
+
+            // 特殊规则：冰只展示氧原子
+            if (data.id === 'ice') {
+                const oIndex = data.atoms.findIndex(a => a.el === 'O');
+                if (oIndex !== -1) state.demoTargets.push(oIndex);
+                return;
+            }
+
+            // 一般规则：每种元素选一个
+            const elements = new Set();
+            data.atoms.forEach((atom, index) => {
+                if (!elements.has(atom.el)) {
+                    // 尽量选择靠近中心的原子，视觉效果更好
+                    // 这里简单处理：选择该元素的第一个原子
+                    // 优化：如果是简单立方等，第一个原子通常在顶点 (0,0,0)，可能不如体心清晰
+                    // 但对于自动演示，顶点也可以。
+                    
+                    // 如果是 NaCl (FCC变体)，顶点 Cl (0,0,0) 和 棱心 Na (0.5,0,0)
+                    // 如果是 CsCl (SC+Body), Cl (0,0,0), Cs (0.5,0.5,0.5)
+                    
+                    elements.add(atom.el);
+                    state.demoTargets.push(index);
+                }
+            });
+            
+            // 排序优化：通常阳离子在前或阴离子在前？
+            // 保持在 atoms 数组中的出现顺序即可
+        }
+
+        // --- 核心逻辑：加载并渲染晶体结构 ---
+        function loadStructure(index) {
+            // 参数校验，防止越界
+            if(index < 0 || index >= structures.length) index = 0;
+            
+            // 修复：处理快速切换时的竞态条件 (如果上一个动画还没做完)
+            if(state.isTransitioning) {
+                if(transitionInterval) clearInterval(transitionInterval);
+                if(pendingGroup) {
+                    scene.remove(pendingGroup);
+                    // 清理几何体和材质，防止内存泄漏
+                    pendingGroup.traverse(o => {
+                        if(o.geometry) o.geometry.dispose();
+                        if(o.material) o.material.dispose();
+                    });
+                }
+                // 重置旧组的状态
+                if(rootGroup) {
+                    rootGroup.scale.set(1, 1, 1);
+                }
+                state.isTransitioning = false;
+            }
+
+            state.currentIndex = index;
+            state.lastSwitchTime = Date.now();
+            
+            // 重置演示模式状态
+            state.demoPhase = 0;
+            state.lastDemoActionTime = Date.now();
+            state.demoActionDone = false;
+            
+            state.isTransitioning = true;
+
+            // 获取当前晶体的数据
+            const data = structures[index];
+            // 调用生成器生成原子和键的数据
+            const geometry = data.generator();
+            
+            // 准备演示目标
+            // 修正：传入包含 atoms 的 geometry 对象，并合并原始数据以获取 id 等信息
+            prepareDemoTargets({ ...data, ...geometry });
+            
+            // 1. 更新 UI (HUD 和 导航栏)
+            updateHUD(data);
+            updateNav(index);
+
+            // 2. 场景切换逻辑
+            // 动画效果：旧的缩小，新的放大
+            const oldGroup = rootGroup;
+            const newGroup = new THREE.Group();
+            pendingGroup = newGroup;
+            
+            // 保存当前数据供交互使用
+            currentStructureData = { ...data, ...geometry };
+
+            // 构建新的3D场景
+            buildScene(newGroup, geometry, data);
+            newGroup.scale.set(0.01, 0.01, 0.01); // 初始大小设为极小
+            scene.add(newGroup);
+
+            // 执行过渡动画
+            let progress = 0;
+            transitionInterval = setInterval(() => {
+                progress += 0.05; // 动画速度
+                if(progress >= 1) {
+                    // 动画结束
+                    clearInterval(transitionInterval);
+                    scene.remove(oldGroup);
+                    // 清理旧资源
+                    if(oldGroup) {
+                        oldGroup.traverse(o => {
+                            if(o.geometry) o.geometry.dispose();
+                            if(o.material) o.material.dispose();
+                        });
+                    }
+                    rootGroup = newGroup;
+                    state.isTransitioning = false;
+                    pendingGroup = null;
+                    transitionInterval = null;
+                } else {
+                    // 缓动效果 (Ease out)
+                    const scale = 1 - Math.pow(1 - progress, 3);
+                    newGroup.scale.set(scale, scale, scale);
+                    if(oldGroup) {
+                        oldGroup.scale.set(1-scale, 1-scale, 1-scale);
+                        oldGroup.rotation.y += 0.1; // 旋转退出
+                    }
+                }
+            }, 16); // 约 60fps
+        }
+
+        function buildScene(group, data, meta) {
+            // 计算中心点，用于居中显示
+            const box = new THREE.Box3();
+            data.atoms.forEach(a => box.expandByPoint(new THREE.Vector3(a.x, a.y, a.z)));
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+
+            // 优化：共享几何体和材质 (使用 LOD 多细节层次技术)
+            // 高模、中模、低模
+            const geoHigh = new THREE.SphereGeometry(1, 16, 12);
+            const geoMed = new THREE.SphereGeometry(1, 8, 8);
+            const geoLow = new THREE.SphereGeometry(1, 6, 5);
+            
+            // 键的几何体（圆柱）
+            const bondGeo = new THREE.CylinderGeometry(1, 1, 1, 6); // 减少分段数以优化性能
+
+            const materials = {};
+            // 获取材质的缓存函数
+            const getMaterial = (el) => {
+                if(!materials[el]) {
+                    const color = CONFIG.colors[el] || 0xffffff;
+                    // 使用物理材质，增加质感
+                    materials[el] = new THREE.MeshPhysicalMaterial({
+                        color: color,
+                        emissive: color,
+                        emissiveIntensity: 0.3,
+                        metalness: 0.2,
+                        roughness: 0.2,
+                        clearcoat: 1.0,
+                        transparent: true,
+                        opacity: 0.9
+                    });
+                }
+                return materials[el];
+            };
+
+            // 渲染原子 (使用 LOD)
+            data.atoms.forEach((a, idx) => {
+                // 规范化元素符号 (如 'na' -> 'Na')
+                let el = a.el;
+                if(el.length === 2) el = el.charAt(0).toUpperCase() + el.charAt(1).toLowerCase();
+                else el = el.toUpperCase();
+
+                const material = getMaterial(el);
+                
+                const lod = new THREE.LOD();
+                
+                // 添加不同距离下的细节级别
+                const m1 = new THREE.Mesh(geoHigh, material);
+                lod.addLevel(m1, 0);
+                
+                const m2 = new THREE.Mesh(geoMed, material);
+                lod.addLevel(m2, 20);
+                
+                const m3 = new THREE.Mesh(geoLow, material);
+                lod.addLevel(m3, 40);
+
+                // 设置原子大小
+                // 优先使用数据中的 radius，否则查找 CONFIG.radii，最后使用默认 atomScale
+                const scale = a.radius || CONFIG.radii[el] || CONFIG.atomScale;
+                lod.scale.set(scale, scale, scale);
+                // 设置位置 (减去中心点偏移)
+                lod.position.set(a.x - center.x, a.y - center.y, a.z - center.z);
+                
+                // 存储元数据
+                lod.userData = {
+                    index: idx,
+                    el: el,
+                    originalPos: {x: a.x, y: a.y, z: a.z},
+                    radius: scale
+                };
+
+                // 存储动画所需的基准位置和数据
+                if(a.animData) {
+                    lod.userData.animData = a.animData;
+                    lod.userData.basePos = lod.position.clone();
+                }
+
+                // 保存引用供键生成使用
+                a.lodReference = lod;
+
+                group.add(lod);
+            });
+
+            // 渲染化学键
+            data.bonds.forEach(b => {
+                const start = new THREE.Vector3(b.start.x - center.x, b.start.y - center.y, b.start.z - center.z);
+                const end = new THREE.Vector3(b.end.x - center.x, b.end.y - center.y, b.end.z - center.z);
+                
+                const distance = start.distanceTo(end);
+                const position = start.clone().add(end).multiplyScalar(0.5);
+                
+                let material;
+                let radius = CONFIG.bondRadius;
+
+                if (b.type === 'hbond') {
+                    // 氢键：使用半透明材质，且加粗，颜色更鲜艳
+                    material = new THREE.MeshBasicMaterial({
+                        color: 0x00ffff, // 青色，高亮显示
+                        transparent: true,
+                        opacity: 0.8,    // 提高不透明度
+                        blending: THREE.NormalBlending,
+                        depthWrite: false // 避免深度遮挡问题
+                    });
+                    radius = CONFIG.bondRadius * 1.0; // 适当加粗，但不超过共价键太多
+                    
+                    // 虚线效果 (通过纹理或简单的分段几何体模拟，这里用虚线材质模拟比较复杂，暂用半透明实线表示)
+                    // 如果需要虚线，可以使用 LineSegments，但 Mesh 更容易控制粗细
+                } else {
+                    // 标准共价键：半透明白色
+                    material = new THREE.MeshBasicMaterial({
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.15,
+                        blending: THREE.AdditiveBlending
+                    });
+                }
+
+                const mesh = new THREE.Mesh(bondGeo, material);
+                mesh.position.copy(position);
+                mesh.scale.set(radius, distance, radius);
+                // 计算旋转，使圆柱体对齐两个原子
+                mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.clone().sub(start).normalize());
+                
+                // 动态键逻辑：如果连接了振动原子，标记为动态键
+                if (b.start.lodReference && b.end.lodReference) {
+                     const startLOD = b.start.lodReference;
+                     const endLOD = b.end.lodReference;
+                     if (startLOD.userData.animData || endLOD.userData.animData) {
+                         mesh.userData.isDynamicBond = true;
+                         mesh.userData.startLOD = startLOD;
+                         mesh.userData.endLOD = endLOD;
+                         
+                         // 计算初始距离作为切换阈值 (因为H初始在O-O中点)
+                         // 稍微加一点容差，确保初始状态为 covalent or transition
+                         const initialDist = start.distanceTo(end);
+                         // 之前设为 +0.05 太大，导致振动幅度(约0.04)不足以触发切换
+                         // 改为极小值，只要偏离中点即切换
+                         mesh.userData.threshold = initialDist + 0.001;
+
+                         // 预创建材质用于切换
+                         mesh.userData.matCovalent = new THREE.MeshBasicMaterial({
+                            color: 0xffffff,
+                            transparent: true,
+                            opacity: 0.25,
+                            blending: THREE.AdditiveBlending
+                        });
+                        mesh.userData.matHBond = new THREE.MeshBasicMaterial({
+                            color: 0x00ffff,
+                            transparent: true,
+                            opacity: 0.8,
+                            blending: THREE.NormalBlending,
+                            depthWrite: false
+                        });
+                     }
+                }
+                
+                group.add(mesh);
+            });
+            
+            // 渲染晶胞边框
+            if (data.cell) {
+                addUnitCellFrame(group, data.cell, center);
+            }
+        }
+
+        function addUnitCellFrame(group, cell, center) {
+            const mat = new THREE.LineBasicMaterial({ color: 0x000000 });
+            let geometry;
+
+            if (cell.type === 'hexagonal') { // 六方晶胞
+                const a = cell.a || 1;
+                const c = cell.c || 1.633;
+                
+                // 绘制菱形柱 (六方晶胞的简单原胞)
+                const h = 0.866 * a; // sin(60) * a
+                const p0 = new THREE.Vector3(0, 0, 0);
+                const p1 = new THREE.Vector3(a, 0, 0);
+                const p2 = new THREE.Vector3(0.5*a, h, 0);
+                const p3 = new THREE.Vector3(-0.5*a, h, 0);
+                
+                const corners = [p0, p1, p2, p3];
+                const pts = [];
+                
+                // Bottom
+                pts.push(corners[0], corners[1]);
+                pts.push(corners[1], corners[2]);
+                pts.push(corners[2], corners[3]);
+                pts.push(corners[3], corners[0]);
+                
+                // Top
+                const top = corners.map(p => new THREE.Vector3(p.x, p.y, c));
+                pts.push(top[0], top[1]);
+                pts.push(top[1], top[2]);
+                pts.push(top[2], top[3]);
+                pts.push(top[3], top[0]);
+                
+                // Pillars
+                pts.push(corners[0], top[0]);
+                pts.push(corners[1], top[1]);
+                pts.push(corners[2], top[2]);
+                pts.push(corners[3], top[3]);
+                
+                geometry = new THREE.BufferGeometry().setFromPoints(pts);
+                
+                const line = new THREE.LineSegments(geometry, mat);
+                line.position.set(-center.x, -center.y, -center.z);
+                line.name = 'unitBox';
+                group.add(line);
+                
+            } else {
+                // 立方 / 正交 晶胞盒子
+                const sx = (cell.a || 1);
+                const sy = (cell.b || sx);
+                const sz = (cell.c || sx);
+                geometry = new THREE.BoxGeometry(sx, sy, sz);
+                const edges = new THREE.EdgesGeometry(geometry);
+                const line = new THREE.LineSegments(edges, mat);
+                
+                const framePos = new THREE.Vector3(sx/2, sy/2, sz/2);
+                line.position.set(framePos.x - center.x, framePos.y - center.y, framePos.z - center.z);
+                line.name = 'unitBox';
+                group.add(line);
+            }
+        }
+
+        // --- UI Logic ---
+        function formatFormula(text) {
+            // 修复：移除 margin-right，解决数字和字母间隔过大的问题
+            return text.replace(/([a-zA-Z])(\d+)/g, '$1<sub>$2</sub>');
+        }
+
+        function initUI() {
+            const nav = document.getElementById('nav-sidebar');
+            let lastCat = '';
+            
+            structures.forEach((s, i) => {
+                if(s.category !== lastCat) {
+                    const cat = document.createElement('div');
+                    cat.className = 'category-title';
+                    cat.innerHTML = formatFormula(s.category);
+                    nav.appendChild(cat);
+                    lastCat = s.category;
+                }
+                
+                const item = document.createElement('div');
+                item.className = 'nav-item';
+                item.innerHTML = `<span>${formatFormula(s.title)}</span>`;
+                item.id = `nav-${i}`;
+                item.onclick = () => {
+                    // Manual override
+                    state.demoMode = false;
+                    document.getElementById('demo-switch').classList.remove('active');
+                    document.getElementById('pause-btn').innerHTML = '<span>▶</span> 继续演示';
+                    loadStructure(i);
+                };
+                nav.appendChild(item);
+            });
+        }
+
+        function updateNav(index) {
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            const curr = document.getElementById(`nav-${index}`);
+            if(curr) {
+                curr.classList.add('active');
+                curr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        function updateHUD(data) {
+            // Title
+            const titleEl = document.getElementById('main-title');
+            const subEl = document.getElementById('sub-info');
+            
+            // Reset anim
+            titleEl.classList.remove('visible');
+            subEl.classList.remove('visible');
+            
+            setTimeout(() => {
+                titleEl.innerHTML = formatFormula(data.title);
+                subEl.innerHTML = formatFormula(data.category);
+                titleEl.classList.add('visible');
+                subEl.classList.add('visible');
+            }, 100);
+
+            // Keywords
+            const keyContainer = document.getElementById('keywords-container');
+            keyContainer.innerHTML = '';
+            data.keywords.forEach((k, i) => {
+                const tag = document.createElement('div');
+                tag.className = 'keyword-tag';
+                tag.innerHTML = formatFormula(k);
+                tag.style.animationDelay = `${i * 0.2 + 0.5}s`;
+                keyContainer.appendChild(tag);
+            });
+
+            // Info Panel
+            document.getElementById('info-system').innerText = data.info.system;
+            document.getElementById('info-cn').innerText = data.info.cn;
+            document.getElementById('info-z').innerText = data.info.z;
+
+            // Legend
+            const legendContainer = document.getElementById('legend-container');
+            legendContainer.innerHTML = '';
+            const uniqueEls = [...new Set(data.generator().atoms.map(a => {
+                let el = a.el;
+                if(el.length === 2) el = el.charAt(0).toUpperCase() + el.charAt(1).toLowerCase();
+                else el = el.toUpperCase();
+                return el;
+            }))];
+            uniqueEls.forEach(el => {
+                const div = document.createElement('div');
+                div.className = 'legend-item';
+                const colorHex = '#' + (CONFIG.colors[el] || 0xffffff).toString(16).padStart(6, '0');
+                div.innerHTML = `<div class="legend-dot" style="background:${colorHex}; box-shadow: 0 0 8px ${colorHex}"></div> ${el}`;
+                legendContainer.appendChild(div);
+            });
+
+
+            // CIF Export
+            const existingCifBtn = document.getElementById('cif-btn');
+            if(existingCifBtn) existingCifBtn.remove();
+            
+            if(data.cifData) {
+                const btn = document.createElement('button');
+                btn.id = 'cif-btn';
+                btn.className = 'control-btn';
+                btn.style.marginTop = '10px';
+                btn.innerHTML = '<span>📥</span> 导出 CIF';
+                btn.onclick = () => {
+                    downloadCIF(data);
+                };
+                document.getElementById('details-panel').appendChild(btn);
+            }
+        }
+        
+        function downloadCIF(data) {
+            const cif = data.cifData;
+            if(!cif) return;
+            
+            let content = `data_${data.id}\n`;
+            content += `_audit_creation_date ${new Date().toISOString().split('T')[0]}\n`;
+            content += `_audit_creation_method 'Crystal Vis Tool'\n`;
+            content += `_symmetry_space_group_name_H-M '${cif.sg}'\n`;
+            content += `_cell_length_a ${cif.a.toFixed(4)}\n`;
+            content += `_cell_length_b ${cif.b.toFixed(4)}\n`;
+            content += `_cell_length_c ${cif.c.toFixed(4)}\n`;
+            content += `_cell_angle_alpha ${cif.alpha.toFixed(2)}\n`;
+            content += `_cell_angle_beta ${cif.beta.toFixed(2)}\n`;
+            content += `_cell_angle_gamma ${cif.gamma.toFixed(2)}\n`;
+            content += `\nloop_\n_atom_site_label\n_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n`;
+            
+            cif.atoms.forEach((a, i) => {
+                content += `${a.label}${i+1} ${a.x.toFixed(5)} ${a.y.toFixed(5)} ${a.z.toFixed(5)}\n`;
+            });
+            
+            // Trigger download
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${data.id}.cif`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // --- Controls ---
+        function toggleDemoMode() {
+            state.demoMode = !state.demoMode;
+            const btn = document.getElementById('demo-switch');
+            if(state.demoMode) {
+                btn.classList.add('active');
+                state.paused = false;
+                document.getElementById('pause-btn').innerHTML = '<span>❚❚</span> 暂停演示';
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+
+        function togglePause() {
+            state.paused = !state.paused;
+            const btn = document.getElementById('pause-btn');
+            if(state.paused) {
+                btn.innerHTML = '<span>▶</span> 继续演示';
+            } else {
+                btn.innerHTML = '<span>❚❚</span> 暂停演示';
+                // Reset timer so it doesn't jump immediately
+                state.lastSwitchTime = Date.now();
+            }
+        }
+
+        function nextStructure() {
+            let next = state.currentIndex + 1;
+            if(next >= structures.length) next = 0;
+            loadStructure(next);
+        }
+
+        function resetView() {
+            // 平滑复位视图
+            const targetPos = new THREE.Vector3(3, 2, 3); // 初始相机位置
+            const targetLookAt = new THREE.Vector3(0, 0, 0); // 初始观察点
+
+            const startPos = camera.position.clone();
+            const startLookAt = controls.target.clone();
+
+            const startTime = Date.now();
+            const duration = 1000; // 持续1秒
+
+            function animateReset() {
+                const now = Date.now();
+                const progress = Math.min((now - startTime) / duration, 1);
+                // Ease out cubic 缓动效果
+                const ease = 1 - Math.pow(1 - progress, 3);
+
+                camera.position.lerpVectors(startPos, targetPos, ease);
+                controls.target.lerpVectors(startLookAt, targetLookAt, ease);
+                controls.update();
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateReset);
+                }
+            }
+            animateReset();
+        }
+
+        // Boot
+        init();
+
+    </script>
+</body>
+</html>
