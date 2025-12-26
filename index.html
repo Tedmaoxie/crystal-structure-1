@@ -457,6 +457,9 @@
             <button class="control-btn" onclick="resetView()">
                 <span>⟲</span> 复位视图
             </button>
+            <button class="control-btn" id="bs-btn" onclick="toggleBallAndStick()">
+                <span>🧶</span> 球棍模型: 关
+            </button>
             <button class="control-btn active" id="dim-btn" onclick="toggleDimming()">
                 <span>💡</span> 暗化背景: 开
             </button>
@@ -525,6 +528,7 @@
         let state = {
             demoMode: true,
             paused: false,
+            ballAndStickMode: false, // New mode: Ball and Stick
             currentIndex: 0,
             lastSwitchTime: 0,
             isTransitioning: false,
@@ -1496,48 +1500,58 @@
                 vectors.push({x: 0, y: 0, z: 1});
             }
             
+            // 定义处理函数
+            const processShift = (i, j, k) => {
+                const shiftX = i*vectors[0].x + j*vectors[1].x + k*vectors[2].x;
+                const shiftY = i*vectors[0].y + j*vectors[1].y + k*vectors[2].y;
+                const shiftZ = i*vectors[0].z + j*vectors[1].z + k*vectors[2].z;
+                
+                uniqueMolIds.forEach(mid => {
+                    if (i===0 && j===0 && k===0 && mid === targetMolId) return;
+                    
+                    // 计算候选分子的质心
+                    const atomsOfMol = originalData.atoms.filter(a => a.moleculeId === mid);
+                    let cx=0, cy=0, cz=0;
+                    atomsOfMol.forEach(a => {
+                        cx += a.x;
+                        cy += a.y;
+                        cz += a.z;
+                    });
+                    cx /= atomsOfMol.length;
+                    cy /= atomsOfMol.length;
+                    cz /= atomsOfMol.length;
+                    
+                    const pcx = cx + shiftX;
+                    const pcy = cy + shiftY;
+                    const pcz = cz + shiftZ;
+                    
+                    // 去重
+                    const key = `${pcx.toFixed(3)},${pcy.toFixed(3)},${pcz.toFixed(3)}`;
+                    if(visited.has(key)) return;
+                    visited.add(key);
+
+                    const d = Math.sqrt((pcx-comX)**2 + (pcy-comY)**2 + (pcz-comZ)**2);
+                    
+                    candidates.push({
+                        d: d,
+                        mid: mid,
+                        atoms: atomsOfMol,
+                        shift: {x: shiftX, y: shiftY, z: shiftZ},
+                        center: {x: pcx, y: pcy, z: pcz}, // 分子中心
+                        isOriginal: (i===0 && j===0 && k===0)
+                    });
+                });
+            };
+
+            // 优先处理晶胞内部 (i=0, j=0, k=0)，确保 isOriginal 正确判定，避免内部原子被误判为外部原子而显示质点
+            processShift(0, 0, 0);
+
+            // 处理周围晶胞
             for(let i=-1; i<=1; i++) {
                 for(let j=-1; j<=1; j++) {
                     for(let k=-1; k<=1; k++) {
-                        const shiftX = i*vectors[0].x + j*vectors[1].x + k*vectors[2].x;
-                        const shiftY = i*vectors[0].y + j*vectors[1].y + k*vectors[2].y;
-                        const shiftZ = i*vectors[0].z + j*vectors[1].z + k*vectors[2].z;
-                        
-                        uniqueMolIds.forEach(mid => {
-                            if (i===0 && j===0 && k===0 && mid === targetMolId) return;
-                            
-                            // 计算候选分子的质心
-                            const atomsOfMol = originalData.atoms.filter(a => a.moleculeId === mid);
-                            let cx=0, cy=0, cz=0;
-                            atomsOfMol.forEach(a => {
-                                cx += a.x;
-                                cy += a.y;
-                                cz += a.z;
-                            });
-                            cx /= atomsOfMol.length;
-                            cy /= atomsOfMol.length;
-                            cz /= atomsOfMol.length;
-                            
-                            const pcx = cx + shiftX;
-                            const pcy = cy + shiftY;
-                            const pcz = cz + shiftZ;
-                            
-                            // 去重
-                            const key = `${pcx.toFixed(3)},${pcy.toFixed(3)},${pcz.toFixed(3)}`;
-                            if(visited.has(key)) return;
-                            visited.add(key);
-
-                            const d = Math.sqrt((pcx-comX)**2 + (pcy-comY)**2 + (pcz-comZ)**2);
-                            
-                            candidates.push({
-                                d: d,
-                                mid: mid,
-                                atoms: atomsOfMol,
-                                shift: {x: shiftX, y: shiftY, z: shiftZ},
-                                center: {x: pcx, y: pcy, z: pcz}, // 分子中心
-                                isOriginal: (i===0 && j===0 && k===0)
-                            });
-                        });
+                        if(i===0 && j===0 && k===0) continue;
+                        processShift(i, j, k);
                     }
                 }
             }
@@ -1618,7 +1632,10 @@
         // 辅助：创建分子质点 (Proxy)
         function createMoleculeProxy(pos, offset, colorHex) {
             // 质点主体 (发光球体) - 缩小尺寸 (0.35 -> 0.12)
-            const geometry = new THREE.SphereGeometry(0.12, 16, 16);
+            const baseRadius = 0.12;
+            const radius = state.ballAndStickMode ? baseRadius * 0.3 : baseRadius;
+            
+            const geometry = new THREE.SphereGeometry(radius, 16, 16);
             const material = new THREE.MeshStandardMaterial({
                 color: colorHex,
                 emissive: colorHex,
@@ -1634,7 +1651,10 @@
             ghostGroup.add(mesh);
             
             // 外部光晕 (Halo) - 缩小尺寸 (0.5 -> 0.25)
-            const haloGeo = new THREE.SphereGeometry(0.25, 16, 16);
+            const baseHaloRadius = 0.25;
+            const haloRadius = state.ballAndStickMode ? baseHaloRadius * 0.3 : baseHaloRadius;
+            
+            const haloGeo = new THREE.SphereGeometry(haloRadius, 16, 16);
             const haloMat = new THREE.MeshBasicMaterial({
                 color: colorHex,
                 transparent: true,
@@ -1902,7 +1922,8 @@
             mesh.position.set(data.x - center.x, data.y - center.y, data.z - center.z);
             
             // 设置大小
-            const radius = CONFIG.radii[data.el] || CONFIG.atomScale;
+            const baseScale = CONFIG.radii[data.el] || CONFIG.atomScale;
+            const radius = state.ballAndStickMode ? baseScale * 0.3 : baseScale;
             mesh.scale.set(radius, radius, radius);
             
             // 如果是高亮状态，添加光晕
@@ -2192,6 +2213,9 @@
 
         // --- 核心逻辑：加载并渲染晶体结构 ---
         function loadStructure(index) {
+            // 切换晶胞时立即关闭配位点亮系统
+            clearHighlights();
+
             // 参数校验，防止越界
             if(index < 0 || index >= structures.length) index = 0;
             
@@ -2340,7 +2364,8 @@
 
                 // 设置原子大小
                 // 优先使用数据中的 radius，否则查找 CONFIG.radii，最后使用默认 atomScale
-                const scale = a.radius || CONFIG.radii[el] || CONFIG.atomScale;
+                const baseScale = a.radius || CONFIG.radii[el] || CONFIG.atomScale;
+                const scale = state.ballAndStickMode ? baseScale * 0.3 : baseScale;
                 lod.scale.set(scale, scale, scale);
                 // 设置位置 (减去中心点偏移)
                 lod.position.set(a.x - center.x, a.y - center.y, a.z - center.z);
@@ -2350,7 +2375,7 @@
                     index: idx,
                     el: el,
                     originalPos: {x: a.x, y: a.y, z: a.z},
-                    radius: scale
+                    radius: baseScale // Store original base scale
                 };
 
                 // 存储动画所需的基准位置和数据
@@ -2686,6 +2711,41 @@
                 // 立即恢复所有材质
                 restoreMaterials();
             }
+        }
+
+        function toggleBallAndStick() {
+            state.ballAndStickMode = !state.ballAndStickMode;
+            const btn = document.getElementById('bs-btn');
+            
+            // UI Update
+            if (state.ballAndStickMode) {
+                btn.classList.add('active');
+                btn.innerHTML = '<span>🧶</span> 球棍模型: 开';
+            } else {
+                btn.classList.remove('active');
+                btn.innerHTML = '<span>🧶</span> 球棍模型: 关';
+            }
+            
+            // Apply changes
+            updateAtomScales();
+            
+            // Clear highlights as they might be scale-dependent
+            clearHighlights();
+        }
+        
+        function updateAtomScales() {
+            if (!rootGroup) return;
+            const factor = state.ballAndStickMode ? 0.3 : 1.0;
+            
+            rootGroup.traverse(obj => {
+                // Check if it's an atom (has userData.radius)
+                // Note: userData.radius stores the ORIGINAL base scale
+                if (obj.userData && obj.userData.radius !== undefined) {
+                    const baseScale = obj.userData.radius;
+                    const newScale = baseScale * factor;
+                    obj.scale.set(newScale, newScale, newScale);
+                }
+            });
         }
 
         function togglePause() {
