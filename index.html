@@ -2473,7 +2473,12 @@
         }
 
         function addUnitCellFrame(group, cell, center) {
-            const mat = new THREE.LineBasicMaterial({ color: 0x000000 });
+            // 修改：将颜色从黑色 (0x000000) 改为白色 (0xffffff)，并增加一点不透明度控制
+            const mat = new THREE.LineBasicMaterial({ 
+                color: 0xffffff, 
+                transparent: true, 
+                opacity: 0.5 
+            });
             let geometry;
 
             if (cell.type === 'hexagonal') { // 六方晶胞
